@@ -53,17 +53,17 @@ input{font-family:inherit;color:inherit}
 @keyframes bounce{from{transform:translateY(0)}to{transform:translateY(-12px)}}
 
 
-.app{display:flex;flex-direction:column;height:100dvh;overflow:hidden;padding-top:var(--safe-top);padding-bottom:var(--safe-bot)}
+.app{display:flex;flex-direction:column;height:100dvh;overflow:hidden;padding-top:var(--safe-top);padding-bottom:0}
 .hdr{height:var(--hdr-h);display:flex;align-items:center;justify-content:space-between;padding:0 6px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;z-index:100}
 .hdr-title{font-family:var(--ff-disp);font-size:17px;font-weight:900}
 .hdr-btn{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center}
 .hdr-btn:active{background:var(--surf)}
 .hdr-btn svg{width:23px;height:23px}
 .pages{flex:1;overflow:hidden;position:relative}
-.page{position:absolute;inset:0;overflow-y:auto;opacity:0;transform:translateX(16px);pointer-events:none;transition:opacity var(--t-slow),transform var(--t-slow);padding-bottom:calc(var(--nav-h) + 12px)}
+.page{position:absolute;inset:0;overflow-y:auto;opacity:0;transform:translateX(16px);pointer-events:none;transition:opacity var(--t-slow),transform var(--t-slow);padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0px) + 16px)}
 .page.active{opacity:1;transform:none;pointer-events:all}
 .ps{padding:16px 16px 0}
-.bnav{height:var(--nav-h);display:flex;background:var(--bg2);border-top:1px solid var(--border);flex-shrink:0;z-index:100}
+.bnav{height:var(--nav-h);display:flex;background:var(--bg2);border-top:1px solid var(--border);position:fixed;bottom:0;left:0;right:0;z-index:1000;padding-bottom:env(safe-area-inset-bottom,0px)}
 .bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:10px;font-weight:600;color:var(--t3);position:relative}
 .bnav-btn svg{width:23px;height:23px}
 .bnav-btn.active{color:var(--accent1)}
@@ -4395,14 +4395,13 @@ const Stats=(()=>{
       const pct=items.length?Math.round(owned/items.length*100):0;
       return{name:t.name,flagEmoji:t.flagEmoji||t.flag,owned,total:items.length,pct};
     });
+    const startedTeamsList=[...teamStats].filter(t=>t.owned>0).sort((a,b)=>b.pct-a.pct||b.owned-a.owned);
     const completedTeams=teamStats.filter(t=>t.pct===100).length;
     const startedTeams=teamStats.filter(t=>t.owned>0).length;
-    const topTeams=[...teamStats].sort((a,b)=>b.pct-a.pct||b.owned-a.owned).slice(0,5);
-    const leastTeams=[...teamStats].filter(t=>t.owned<t.total).sort((a,b)=>a.pct-b.pct).slice(0,5);
+    
+    
 
     // Players filled
-    const namesFilled=teamStickers.filter(s=>PlayerNames.isFilled(s.numero)).length;
-    const namesPct=teamStickers.length?Math.round(namesFilled/teamStickers.length*100):0;
 
     // Specials / extras
     const specialsOwned=specials.filter(s=>Collection.isOwned(s.numero)).length;
@@ -4437,21 +4436,14 @@ const Stats=(()=>{
         <div class="stat-mini"><b>${48-startedTeams}</b><small>Sin tocar</small></div>
       </div>
 
-      ${topTeams.length?`
-      <div class="sec-title">🏆 Tus mejores equipos</div>
-      <div class="stats-team-list">
-        ${topTeams.map(t=>`<div class="stats-team-row">
-          <span class="stats-team-flag">${t.flagEmoji||''}</span>
-          <span class="stats-team-name">${t.name}</span>
-          <div class="stats-team-bar"><div class="stats-team-fill" style="width:${t.pct}%"></div></div>
-          <span class="stats-team-pct">${t.pct}%</span>
-        </div>`).join('')}
-      </div>`:''}
+      
 
-      ${leastTeams.length?`
-      <div class="sec-title">📋 Te falta más en</div>
+      
+
+      ${startedTeamsList.length?`
+      <div class="sec-title">📊 Equipos empezados (${startedTeamsList.length}/48)</div>
       <div class="stats-team-list">
-        ${leastTeams.map(t=>`<div class="stats-team-row">
+        ${startedTeamsList.map(t=>`<div class="stats-team-row">
           <span class="stats-team-flag">${t.flagEmoji||''}</span>
           <span class="stats-team-name">${t.name}</span>
           <div class="stats-team-bar"><div class="stats-team-fill" style="width:${t.pct}%"></div></div>
@@ -4474,7 +4466,7 @@ const Stats=(()=>{
         <div class="stats-other-row"><span>⭐ Extras completos (4 variantes)</span><b>${extraGroupsComplete}/${extraGroups.length}</b></div>
         <div class="stats-other-row"><span>⭐ Variantes de Extra obtenidas</span><b>${extraVariantsOwned}/${extraGroups.length*4}</b></div>
         <div class="stats-other-row"><span>🥤 Coca-Cola obtenidas</span><b>${cocacolaOwned}/${cocacola.length}</b></div>
-        <div class="stats-other-row"><span>✏️ Nombres llenados</span><b>${namesFilled}/${teamStickers.length} (${namesPct}%)</b></div>
+        
       </div>
     `;
 
@@ -4573,15 +4565,9 @@ const App=(()=>{
       const names=data.names||[];
       const coll=data.collection||[];
       if(!names.length)return;
-      // Always write — IndexedDB is empty for new users on GitHub Pages
-      // Use DB.put directly since DB is already open at this point
-      for(const n of names){
-        try{await DB.put('players',{numero:n.numero,nombre:n.nombre});}catch(e){}
-      }
-      for(const c of coll){
-        try{await DB.put('collection',{numero:c.numero,owned:!!c.owned,repeated:c.repeated||0});}catch(e){}
-      }
-    }catch(e){console.error('Seed error:',e);}
+      for(const n of names){try{await DB.put('players',{numero:n.numero,nombre:n.nombre});}catch(e){}}
+      for(const c of coll){try{await DB.put('collection',{numero:c.numero,owned:!!c.owned,repeated:c.repeated||0});}catch(e){}}
+    }catch(e){}
   }
 
   function _splash(){
