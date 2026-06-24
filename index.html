@@ -630,17 +630,12 @@ window.__BAKED_DATA__={"names":[{"numero":1,"nombre":"ESCUDO"},{"numero":2,"nomb
           <div class="sett-row"><div class="sett-info"><b>Modo oscuro</b></div>
             <label class="tog"><input type="checkbox" id="tog-dark" checked/><span class="tog-track"><span class="tog-thumb"></span></span></label></div>
         </div>
-        <div class="sett-group">
-          <div class="sett-title">Acceso al Editor de nombres</div>
-          <div class="sett-row"><div class="sett-info"><b>Protección</b><small id="pin-status">🔒 Protegido con PIN de desarrollador</small></div></div>
-          <button class="sett-row clickable" id="s-open-editor" data-nav="editor"><div class="sett-info"><b>✏️ Editar nombres de jugadores</b><small>Requiere PIN</small></div><span>›</span></button>
         </div>
         <div class="sett-group">
           <div class="sett-title">Tu colección</div>
           <button class="sett-row clickable" id="s-export"><div class="sett-info"><b>Exportar backup</b><small>Guarda todo en un archivo</small></div><span>›</span></button>
           <button class="sett-row clickable" id="s-import"><div class="sett-info"><b>Importar backup</b><small>Restaurar desde archivo</small></div><span>›</span></button>
           <input type="file" id="s-import-file" accept=".json" class="hidden"/>
-          <button class="sett-row clickable" id="s-freeze"><div class="sett-info"><b>🧊 Congelar en la app</b><small>Selecciona tu index.html y genera uno nuevo con tus nombres ya incluidos</small></div><span>›</span></button>
           <button class="sett-row clickable" id="s-reset"><div class="sett-info"><b style="color:var(--danger)">Reiniciar colección</b><small>Borra marcado (no nombres)</small></div><span>›</span></button>
         </div>
         <div class="sett-group">
@@ -4519,7 +4514,6 @@ const Settings=(()=>{
     qs('#s-import')?.addEventListener('click',()=>qs('#s-import-file')?.click());
     qs('#s-import-file')?.addEventListener('change',_importAll);
     qs('#s-reset')?.addEventListener('click',_reset);
-    qs('#s-freeze')?.addEventListener('click',_freezeNames);
   }
   function _applyTheme(dark){document.getElementById('app-body').className=dark?'theme-dark':'theme-light';}
 
@@ -4547,82 +4541,6 @@ const Settings=(()=>{
     Album.refreshTeamsList();Album.renderSpecials();Repeated.refresh();App.refreshHome();
     Toast.show('🔄 Colección reiniciada');
   }
-  async function _freezeNames(){
-    // Trigger a file picker so the user selects their own index.html
-    // This works 100% offline — no fetch, no network, reads the file directly
-    const input=document.createElement('input');
-    input.type='file';input.accept='.html';
-    input.onchange=async()=>{
-      const file=input.files[0];if(!file)return;
-      Toast.show('⏳ Procesando...');
-      try{
-        // 1. Read the HTML file the user selected
-        const html=await new Promise((res,rej)=>{
-          const r=new FileReader();
-          r.onload=e=>res(e.target.result);
-          r.onerror=()=>rej(new Error('No se pudo leer el archivo'));
-          r.readAsText(file,'UTF-8');
-        });
-
-        // 2. Verify it's the right file
-        if(!html.includes('window.__STICKERS__'))
-          throw new Error('Este no es el index.html de Stickero');
-
-        // 3. Read names and collection from IndexedDB
-        const players=PlayerNames.exportData();
-        const collection=Collection.exportData();
-        const nameMap={};
-        for(const p of players){if(p.nombre&&p.nombre.trim())nameMap[p.numero]=p.nombre.trim();}
-        const colMap={};
-        for(const c of collection){colMap[c.numero]=c;}
-
-        // 4. Clone sticker data from memory and bake names + collection into it
-        const stickerData=JSON.parse(JSON.stringify(window.__STICKERS__));
-        let namesCount=0,ownedCount=0;
-        for(const s of stickerData.stickers){
-          if(nameMap[s.numero]){s._bakedName=nameMap[s.numero];namesCount++;}
-          if(colMap[s.numero]){
-            s._bakedOwned=!!colMap[s.numero].owned;
-            s._bakedRepeated=colMap[s.numero].repeated||0;
-            if(s._bakedOwned)ownedCount++;
-          }
-        }
-
-        // 5. Replace the __STICKERS__ block in the file with baked version
-        const newBlock='window.__STICKERS__ = '+JSON.stringify(stickerData)+';';
-        let newHtml=html.replace(/window\.__STICKERS__\s*=\s*\{[\s\S]*?\};/,newBlock);
-        if(newHtml===html)throw new Error('No se encontró el bloque de datos en el archivo');
-
-        // 6. Build simple data object — app boot will handle writing it
-        const bakedNames=stickerData.stickers
-          .filter(s=>s._bakedName)
-          .map(s=>({numero:s.numero,nombre:s._bakedName}));
-        const bakedColl=stickerData.stickers
-          .filter(s=>s._bakedOwned||s._bakedRepeated)
-          .map(s=>({numero:s.numero,owned:!!s._bakedOwned,repeated:s._bakedRepeated||0}));
-
-        const seed=`<script>
-window.__BAKED_DATA__=${JSON.stringify({names:bakedNames,collection:bakedColl})};
-<\/script>`;
-        newHtml=newHtml.replace('</head>',seed+'\n</head>');
-
-        // 7. Download
-        const blob=new Blob([newHtml],{type:'text/html;charset=utf-8'});
-        const url=URL.createObjectURL(blob);
-        const a=document.createElement('a');
-        a.href=url;a.download='Stickero-congelado.html';
-        document.body.appendChild(a);a.click();
-        document.body.removeChild(a);
-        setTimeout(()=>URL.revokeObjectURL(url),5000);
-        Toast.show(`✅ ${namesCount} nombres · ${ownedCount} láminas congeladas`);
-      }catch(err){
-        Toast.show('❌ Error: '+err.message);
-        console.error(err);
-      }
-    };
-    input.click();
-  }
-
   return{init};
 })();
 window.Settings=Settings;
@@ -4652,23 +4570,18 @@ const App=(()=>{
   }
   async function _runSeed(data){
     try{
-      // Check if already seeded
-      const existing=await DB.getAll('players');
-      if(existing&&existing.length>0)return; // already has data, skip
-      // Write in one transaction using the already-open DB
       const names=data.names||[];
       const coll=data.collection||[];
-      await new Promise((res,rej)=>{
-        const db=DB._db; // use internal already-open connection
-        if(!db)return res();
-        const tx=db.transaction(['players','collection'],'readwrite');
-        tx.oncomplete=res;tx.onerror=res;tx.onabort=res;
-        const ps=tx.objectStore('players');
-        const cs=tx.objectStore('collection');
-        names.forEach(n=>{try{ps.put({numero:n.numero,nombre:n.nombre});}catch(e){}});
-        coll.forEach(c=>{try{cs.put({numero:c.numero,owned:!!c.owned,repeated:c.repeated||0});}catch(e){}});
-      });
-    }catch(e){} // never block boot
+      if(!names.length)return;
+      // Always write — IndexedDB is empty for new users on GitHub Pages
+      // Use DB.put directly since DB is already open at this point
+      for(const n of names){
+        try{await DB.put('players',{numero:n.numero,nombre:n.nombre});}catch(e){}
+      }
+      for(const c of coll){
+        try{await DB.put('collection',{numero:c.numero,owned:!!c.owned,repeated:c.repeated||0});}catch(e){}
+      }
+    }catch(e){console.error('Seed error:',e);}
   }
 
   function _splash(){
@@ -4753,7 +4666,6 @@ const App=(()=>{
     qsa('.qa-btn').forEach(b=>b.addEventListener('click',()=>navigateTo(b.dataset.nav)));
     qs('#search-btn')?.addEventListener('click',()=>navigateTo('search'));
     qs('#home-stats-btn')?.addEventListener('click',()=>navigateTo('stats'));
-    qs('#s-open-editor')?.addEventListener('click',()=>navigateTo('editor'));
   }
   function _bindBackBtn(){qs('#back-btn')?.addEventListener('click',goBack);}
   async function refreshHome(){
