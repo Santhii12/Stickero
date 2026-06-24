@@ -53,7 +53,7 @@ input{font-family:inherit;color:inherit}
 @keyframes bounce{from{transform:translateY(0)}to{transform:translateY(-12px)}}
 
 
-.app{display:flex;flex-direction:column;height:100dvh;overflow:hidden;padding-top:var(--safe-top);padding-bottom:0}
+.app{display:flex;flex-direction:column;height:100dvh;overflow:hidden;padding-top:var(--safe-top);padding-bottom:var(--safe-bot)}
 .hdr{height:var(--hdr-h);display:flex;align-items:center;justify-content:space-between;padding:0 6px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;z-index:100}
 .hdr-title{font-family:var(--ff-disp);font-size:17px;font-weight:900}
 .hdr-btn{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center}
@@ -84,7 +84,7 @@ input{font-family:inherit;color:inherit}
 .stats-link-btn:active{background:var(--surf2)}
 .big-cta{width:100%;padding:18px;border-radius:var(--r-lg);background:linear-gradient(135deg,var(--accent2),var(--accent1));color:#fff;font-size:17px;font-weight:800;margin-bottom:18px;box-shadow:0 6px 24px rgba(0,224,198,.25);transition:transform var(--t-fast)}
 .big-cta:active{transform:scale(.97)}
-.search-quick-box{display:flex;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--border2);border-radius:var(--r);padding:0 14px;margin-bottom:6px}
+.search-quick-box{display:flex;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--border2);border-radius:var(--r);padding:0 14px;margin-bottom:6px}.search-prominent{background:var(--surf2);border:1.5px solid var(--accent1);border-radius:var(--r-lg);padding:4px 16px;box-shadow:0 0 16px rgba(0,224,198,.15);margin-bottom:10px}
 .search-quick-box svg{width:18px;height:18px;color:var(--t3);flex-shrink:0}
 #home-search{flex:1;background:transparent;border:none;outline:none;font-size:15px;padding:14px 0;color:var(--t1)}
 #home-search::placeholder{color:var(--t3);font-size:13px}
@@ -461,12 +461,12 @@ window.__BAKED_DATA__={"names":[{"numero":1,"nombre":"ESCUDO"},{"numero":2,"nomb
           </div>
           <button class="stats-link-btn" id="home-stats-btn">📊 Ver estadísticas completas →</button>
         </div>
-        <button class="big-cta" id="open-album-btn">📖 Ver mi álbum</button>
-        <div class="search-quick-box">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input id="home-search" type="text" placeholder='Código: "COL 8", "ARG5"...' autocomplete="off"/>
+        <div class="search-quick-box search-prominent">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="home-search" type="text" placeholder='🔍  Busca por código: "COL 8", "ARG 5"...' autocomplete="off"/>
         </div>
         <div id="home-search-results"></div>
+        <button class="big-cta" id="open-album-btn">📖 Ver mi álbum</button>
         <div class="sec-title">Actividad reciente</div>
         <div id="h-activity" class="activity-list"></div>
         <div class="footer-credit">Stickero · Desarrollado por <b>SCJ</b></div>
@@ -3362,7 +3362,7 @@ function downloadJSON(data,fname){const b=new Blob([JSON.stringify(data,null,2)]
 function readJSONFile(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>{try{res(JSON.parse(e.target.result));}catch{rej(new Error('Archivo inválido'));}};r.onerror=()=>rej(new Error('Error leyendo'));r.readAsText(f);});}
 function debounce(fn,d=200){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),d);};}
 function relTime(ts){const d=Date.now()-ts,s=Math.floor(d/1000),m=Math.floor(s/60),h=Math.floor(m/60),dy=Math.floor(h/24);if(s<60)return'ahora';if(m<60)return m+'m';if(h<24)return h+'h';return dy+'d';}
-function stickerCode(s){return `${s.abbr} ${s.localNum}`;}
+function stickerCode(s){if(s.abbr==='00')return '00';return `${s.abbr} ${s.localNum}`;}
 function flagImg(team,size=32){
   const iso=team?.iso||'un';
   return`<img src="https://flagcdn.com/w${size}/${iso}.png" loading="lazy" alt="${team?.name||''}" onerror="this.style.display='none'"/>`;
