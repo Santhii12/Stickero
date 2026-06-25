@@ -636,6 +636,8 @@ window.__BAKED_DATA__={"names":[{"numero":1,"nombre":"ESCUDO"},{"numero":2,"nomb
           <button class="sett-row clickable" id="s-export"><div class="sett-info"><b>Exportar backup</b><small>Guarda todo en un archivo</small></div><span>›</span></button>
           <button class="sett-row clickable" id="s-import"><div class="sett-info"><b>Importar backup</b><small>Restaurar desde archivo</small></div><span>›</span></button>
           <input type="file" id="s-import-file" accept=".json" class="hidden"/>
+          <button class="sett-row clickable" id="s-import-ext"><div class="sett-info"><b>📥 Importar desde otra app</b><small>Formato ABBR-NUM · ej: COL-7, ARG-5</small></div><span>›</span></button>
+          <input type="file" id="s-import-ext-file" accept=".json" class="hidden"/>
           <button class="sett-row clickable" id="s-reset"><div class="sett-info"><b style="color:var(--danger)">Reiniciar colección</b><small>Borra marcado (no nombres)</small></div><span>›</span></button>
         </div>
         <div class="sett-group">
@@ -4506,6 +4508,8 @@ const Settings=(()=>{
     qs('#s-import')?.addEventListener('click',()=>qs('#s-import-file')?.click());
     qs('#s-import-file')?.addEventListener('change',_importAll);
     qs('#s-reset')?.addEventListener('click',_reset);
+    qs('#s-import-ext')?.addEventListener('click',()=>qs('#s-import-ext-file')?.click());
+    qs('#s-import-ext-file')?.addEventListener('change',_importExternal);
   }
   function _applyTheme(dark){document.getElementById('app-body').className=dark?'theme-dark':'theme-light';}
 
@@ -4533,7 +4537,31 @@ const Settings=(()=>{
     Album.refreshTeamsList();Album.renderSpecials();Repeated.refresh();App.refreshHome();
     Toast.show('🔄 Colección reiniciada');
   }
-  return{init};
+  async function _importExternal(e){
+    const file=e.target.files[0];if(!file)return;
+    try{
+      const raw=await readJSONFile(file);
+      const keys=Object.keys(raw);
+      if(!keys.length||!/^[A-Z]{2,4}-\d{1,2}$/.test(keys[0])){
+        Toast.show('❌ Formato no reconocido');e.target.value='';return;
+      }
+      if(!confirm('¿Importar colección desde otra app? Se reemplazará la actual.')){e.target.value='';return;}
+      const lookup={};
+      for(const s of StickerData.stickers)lookup[s.abbr+'-'+s.localNum]=s.numero;
+      const collection=[];let matched=0,skipped=0;
+      for(const[key,qty] of Object.entries(raw)){
+        const numero=lookup[key];
+        if(!numero){skipped++;continue;}
+        collection.push({numero,owned:true,repeated:Math.max(0,qty-1)});
+        matched++;
+      }
+      await Collection.importData(collection);
+      Album.refreshTeamsList();App.refreshHome();
+      Toast.show('✅ '+matched+' láminas importadas'+(skipped?' ('+skipped+' no encontradas)':''));
+    }catch(err){Toast.show('❌ Error al leer el archivo');}
+    e.target.value='';
+  }
+    return{init};
 })();
 window.Settings=Settings;
 
@@ -4708,7 +4736,7 @@ const App=(()=>{
       qs('#hdr-title').textContent='Serie Coca-Cola';
       qs('#back-btn').style.visibility='visible';
     }else{
-      // no navigation — modal works with sticker numero directly
+      Album.openTeam(s.pais);
     }
     Album.openModal(s.numero);
   }
