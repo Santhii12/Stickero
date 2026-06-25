@@ -4124,7 +4124,7 @@ const Repeated=(()=>{
       const groupLabel=groupKey==='Especiales / Extras'?'⭐ ESPECIALES / EXTRAS':`🏆 GRUPO ${groupKey}`;
       body+=`\n*━━ ${groupLabel} ━━*\n`;
       for(const[country,items]of byCountry){
-        if(groupKey!=='Especiales / Extras')body+=`\n_${country}_\n`;
+        if(groupKey!=='Especiales / Extras'){const _tf=StickerData.teams.find(t=>t.name===country)?.flagEmoji||'';body+=`\n${_tf} _${country}_\n`;}
         for(const s of items){
           const code=s.categoria==='extras'?`${s.tierName} #${s.localNum}`:stickerCode(s);
           const name=PlayerNames.getDisplayName(s);
