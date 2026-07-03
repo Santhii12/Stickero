@@ -84,7 +84,13 @@ input{font-family:inherit;color:inherit}
 .stats-link-btn:active{background:var(--surf2)}
 .big-cta{width:100%;padding:18px;border-radius:var(--r-lg);background:linear-gradient(135deg,var(--accent2),var(--accent1));color:#fff;font-size:17px;font-weight:800;margin-bottom:18px;box-shadow:0 6px 24px rgba(0,224,198,.25);transition:transform var(--t-fast)}
 .big-cta:active{transform:scale(.97)}
-.search-quick-box{display:flex;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--border2);border-radius:var(--r);padding:0 14px;margin-bottom:6px}.search-prominent{background:var(--surf2);border:1.5px solid var(--accent1);border-radius:var(--r-lg);padding:4px 16px;box-shadow:0 0 16px rgba(0,224,198,.15);margin-bottom:10px}
+.search-quick-box{display:flex;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--border2);border-radius:var(--r);padding:0 14px;margin-bottom:6px}
+.rep-search-box{display:flex;align-items:center;gap:10px;background:var(--surf);border:1px solid var(--border2);border-radius:var(--r);padding:0 14px;margin-bottom:10px;height:44px}
+.rep-search-box svg{width:18px;height:18px;color:var(--t3);flex-shrink:0}
+.rep-search-box input{flex:1;background:none;border:none;outline:none;color:var(--t1);font-size:14px;font-family:var(--ff-body);height:100%}
+.rep-search-box input::placeholder{color:var(--t3)}
+.rep-search-clear{background:var(--bg4);border:none;color:var(--t2);width:24px;height:24px;border-radius:50%;font-size:12px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.rep-search-clear.hidden{display:none}.search-prominent{background:var(--surf2);border:1.5px solid var(--accent1);border-radius:var(--r-lg);padding:4px 16px;box-shadow:0 0 16px rgba(0,224,198,.15);margin-bottom:10px}
 .search-quick-box svg{width:18px;height:18px;color:var(--t3);flex-shrink:0}
 #home-search{flex:1;background:transparent;border:none;outline:none;font-size:15px;padding:14px 0;color:var(--t1)}
 #home-search::placeholder{color:var(--t3);font-size:13px}
@@ -594,6 +600,11 @@ window.__BAKED_DATA__={"names":[{"numero":1,"nombre":"ESCUDO"},{"numero":2,"nomb
         </div>
       </div>
       <div class="ps">
+        <div class="rep-search-box">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input id="rep-search" type="text" placeholder="Buscar por código o nombre..." autocomplete="off"/>
+          <button id="rep-search-clear" class="rep-search-clear hidden">✕</button>
+        </div>
         <div class="rep-select-bar" id="rep-select-bar">
           <span id="rep-select-count">0 seleccionadas</span>
           <button class="rep-share-sel-btn" id="rep-share-selected">📤 Compartir selección</button>
@@ -3934,17 +3945,42 @@ const Repeated=(()=>{
   let _mode='have'; // 'have' = repetidas para ofrecer, 'want' = faltantes que busco
   let _selected=new Set();
   let _renderLimit=60; // avoid rendering 1000+ cards at once, which freezes the UI
+  let _searchQuery='';
 
   function init(){
     _bindTabs();_bindShareSheet();
     qs('#rep-share-selected')?.addEventListener('click',_shareSelected);
+    _bindSearch();
     render();
+  }
+
+  function _bindSearch(){
+    const input=qs('#rep-search');
+    const clearBtn=qs('#rep-search-clear');
+    if(input){
+      input.addEventListener('input',e=>{
+        _searchQuery=e.target.value.trim();
+        clearBtn?.classList.toggle('hidden',!_searchQuery);
+        _renderLimit=60;
+        render();
+      });
+    }
+    if(clearBtn){
+      clearBtn.addEventListener('click',()=>{
+        _searchQuery='';
+        if(input)input.value='';
+        clearBtn.classList.add('hidden');
+        render();
+      });
+    }
   }
 
   function _bindTabs(){
     qsa('.rep-tab').forEach(t=>t.addEventListener('click',()=>{
       qsa('.rep-tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');
-      _mode=t.dataset.rt;_selected.clear();_renderLimit=60;render();
+      _mode=t.dataset.rt;_selected.clear();_renderLimit=60;
+      _searchQuery='';const _si=qs('#rep-search');if(_si)_si.value='';qs('#rep-search-clear')?.classList.add('hidden');
+      render();
     }));
   }
 
@@ -3964,8 +4000,23 @@ const Repeated=(()=>{
       fullList=StickerData.stickers.filter(s=>!Collection.isOwned(s.numero));
     }
 
+    // Apply search filter if there's a query
+    if(_searchQuery){
+      const q=_searchQuery.toLowerCase();
+      fullList=fullList.filter(s=>{
+        const code=stickerCode(s).toLowerCase();
+        const name=PlayerNames.getDisplayName(s).toLowerCase();
+        const country=(s.pais||'').toLowerCase();
+        return code.includes(q)||name.includes(q)||country.includes(q);
+      });
+    }
+
     if(!fullList.length){
-      grid.innerHTML=`<div class="empty-state"><div class="empty-ico">${_mode==='have'?'🔁':'❌'}</div><p>${_mode==='have'?'Sin repetidas aún':'No te falta ninguna ¡felicidades! 🏆'}</p></div>`;
+      if(_searchQuery){
+        grid.innerHTML=`<div class="empty-state"><div class="empty-ico">🔍</div><p>No se encontró "${_searchQuery}"</p></div>`;
+      }else{
+        grid.innerHTML=`<div class="empty-state"><div class="empty-ico">${_mode==='have'?'🔁':'❌'}</div><p>${_mode==='have'?'Sin repetidas aún':'No te falta ninguna ¡felicidades! 🏆'}</p></div>`;
+      }
       _updateSelectBar();
       return;
     }
