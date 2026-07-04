@@ -338,6 +338,12 @@ input{font-family:inherit;color:inherit}
 .stats-other-list{display:flex;flex-direction:column;gap:7px;margin-bottom:20px}
 .stats-other-row{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;background:var(--surf);border:1px solid var(--border);border-radius:var(--r-sm);font-size:12px;color:var(--t2)}
 .stats-other-row b{color:var(--t1);font-weight:800}
+.stats-money-card{display:flex;align-items:center;gap:14px;padding:16px 18px;background:linear-gradient(135deg,rgba(212,175,55,.15),rgba(212,175,55,.05));border:1px solid rgba(212,175,55,.35);border-radius:var(--r);margin-top:24px;margin-bottom:20px}
+.stats-money-ico{font-size:32px;flex-shrink:0}
+.stats-money-info{flex:1;min-width:0}
+.stats-money-label{font-size:11px;color:var(--t3);text-transform:uppercase;letter-spacing:.5px;font-weight:700}
+.stats-money-amount{font-family:var(--ff-disp);font-size:26px;font-weight:900;color:#D4AF37;line-height:1.1;margin:2px 0}
+.stats-money-detail{font-size:11px;color:var(--t2)}
 .empty-state{grid-column:1/-1;text-align:center;padding:40px 20px;color:var(--t3)}
 .empty-ico{font-size:38px;margin-bottom:10px}
 
@@ -4440,6 +4446,11 @@ const Stats=(()=>{
     const totalMissing=allStickers.length-totalOwned;
     const totalRepeated=allStickers.reduce((sum,s)=>sum+Collection.getRepeated(s.numero),0);
     const overallPct=allStickers.length?Math.round(totalOwned/allStickers.length*100):0;
+    // Money estimate: each pack = 5000 COP, 7 stickers per pack
+    const totalStickers=totalOwned+totalRepeated;
+    const packsEstimate=Math.ceil(totalStickers/7);
+    const moneySpent=packsEstimate*5000;
+    const moneyFmt=moneySpent.toLocaleString('es-CO');
 
     // Per-team breakdown, sorted by completion percentage
     const teamStats=StickerData.teams.map(t=>{
@@ -4511,6 +4522,15 @@ const Stats=(()=>{
           <div class="stats-pos-label">${p.label}</div>
           <div class="stats-pos-frac">${p.owned}/${p.total}</div>
         </div>`).join('')}
+      </div>
+
+      <div class="stats-money-card">
+        <div class="stats-money-ico">💰</div>
+        <div class="stats-money-info">
+          <div class="stats-money-label">Inversión estimada</div>
+          <div class="stats-money-amount">$${moneyFmt}</div>
+          <div class="stats-money-detail">≈ ${packsEstimate} sobres · ${totalStickers} láminas pegadas</div>
+        </div>
       </div>
 
       <div class="sec-title">Otros</div>
