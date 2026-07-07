@@ -40,6 +40,7 @@ input{font-family:inherit;color:inherit}
 .splash-26{font-family:var(--ff-disp);font-size:120px;font-weight:900;line-height:1;letter-spacing:-4px;opacity:0;animation:s26in 1s cubic-bezier(.22,1,.36,1) .2s forwards}
 .s26-2{background:linear-gradient(160deg,#7B5FFF,#00E0C6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .s26-6{background:linear-gradient(160deg,#00E0C6,#FFC93C);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+@keyframes celebPop{0%{transform:translate(-50%,-50%) scale(0);opacity:0}50%{transform:translate(-50%,-50%) scale(1.15)}100%{transform:translate(-50%,-50%) scale(1);opacity:1}}
 @keyframes s26in{from{opacity:0;transform:scale(1.4)}to{opacity:1;transform:none}}
 .splash-trophy{position:absolute;font-size:32px;top:50%;left:50%;transform:translate(-50%,-50%);opacity:0;animation:trophyin .6s ease .9s forwards;filter:drop-shadow(0 0 20px #FFC93C)}
 @keyframes trophyin{from{opacity:0;transform:translate(-50%,-50%) scale(0)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
@@ -138,6 +139,7 @@ input{font-family:inherit;color:inherit}
   background:linear-gradient(155deg,#16224a,#0a1230);border:1px solid rgba(0,224,198,.25);
   cursor:pointer;transition:transform var(--t-fast)}
 .hub-hero-card:active{transform:scale(.98)}
+.hub-hero-fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:5;border-radius:inherit}
 .hub-hero-glow{position:absolute;inset:0;background:radial-gradient(circle at 85% 0%,rgba(0,224,198,.22),transparent 55%),radial-gradient(circle at 0% 100%,rgba(123,95,255,.18),transparent 50%)}
 .hub-hero-top{position:relative;display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}
 .hub-hero-ico{font-size:30px}
@@ -490,6 +492,7 @@ window.__BAKED_DATA__={"names":[{"numero":1,"nombre":"ESCUDO"},{"numero":2,"nomb
       <div class="hub-wrap">
         <div class="hub-hero-card" id="hub-card-teams">
           <div class="hub-hero-glow"></div>
+          <canvas class="hub-hero-fx" id="hub-hero-fx"></canvas>
           <div class="hub-hero-top">
             <div class="hub-hero-ico">🌍</div>
             <div class="hub-hero-ring-wrap">
@@ -3435,8 +3438,19 @@ const Album=(()=>{
     const teamsPct=teamItems.length?Math.round(teamItems.filter(s=>Collection.isOwned(s.numero)).length/teamItems.length*100):0;
     const ringEl=qs('#hub-hero-ring'),pctEl=qs('#hub-hero-pct'),subEl=qs('#hub-hero-sub');
     if(pctEl)pctEl.textContent=teamsPct+'%';
-    if(subEl)subEl.textContent=`${teamsCompleted} de 48 equipos completos`;
+    const teamOwned=teamItems.filter(s=>Collection.isOwned(s.numero)).length;
+    const teamMissing=teamItems.length-teamOwned;
+    if(subEl)subEl.innerHTML=`${teamsCompleted}/48 equipos · <b style="color:var(--accent1)">${teamOwned}</b> tengo · <b style="color:#FF8A8A">${teamMissing}</b> faltan`;
     if(ringEl)_drawHubRing(ringEl,teamsPct);
+    // Celebrate when the whole album is complete (only once per session)
+    if(teamsPct===100&&!window.__CELEBRATED__){
+      window.__CELEBRATED__=true;
+      setTimeout(()=>_celebrate(),400);
+      setTimeout(()=>_celebrateCard(),200);
+    }
+    // Also fire card fireworks whenever hub renders at 100% (e.g. revisiting Album)
+    if(teamsPct===100){setTimeout(()=>_celebrateCard(),300);}
+    if(teamsPct<100)window.__CELEBRATED__=false;
 
     const specials=StickerData.getSpecials();
     const specialsOwned=specials.filter(s=>Collection.isOwned(s.numero)).length;
@@ -3452,6 +3466,124 @@ const Album=(()=>{
     const cocacolaOwned=cocacola.filter(s=>Collection.isOwned(s.numero)).length;
     const ccSub=qs('#hub-sec-cocacola-sub');
     if(ccSub)ccSub.textContent=`${cocacolaOwned}/${cocacola.length}`;
+  }
+
+  function _celebrateCard(){
+    const canvas=document.getElementById('hub-hero-fx');
+    if(!canvas)return;
+    const card=canvas.parentElement;
+    const W=canvas.width=card.offsetWidth||340;
+    const H=canvas.height=card.offsetHeight||200;
+    const ctx=canvas.getContext('2d');
+    const particles=[];
+    const colors=['#D4AF37','#FFD700','#00E0C6','#7B5FFF','#3FE08F','#FF8A8A','#FFFFFF'];
+    function burst(){
+      const x=Math.random()*W*0.7+W*0.15;
+      const y=Math.random()*H*0.5+H*0.15;
+      const color=colors[Math.floor(Math.random()*colors.length)];
+      const count=18+Math.floor(Math.random()*12);
+      for(let i=0;i<count;i++){
+        const a=(Math.PI*2*i)/count;
+        const sp=1+Math.random()*2.2;
+        particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,color,life:1,size:1.5+Math.random()*1.5});
+      }
+    }
+    let frame=0,animId;
+    function loop(){
+      ctx.clearRect(0,0,W,H);
+      for(let i=particles.length-1;i>=0;i--){
+        const p=particles[i];
+        p.x+=p.vx;p.y+=p.vy;p.vy+=0.04;p.vx*=0.98;p.life-=0.02;
+        if(p.life<=0){particles.splice(i,1);continue;}
+        ctx.globalAlpha=Math.max(0,p.life);
+        ctx.fillStyle=p.color;
+        ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,Math.PI*2);ctx.fill();
+      }
+      ctx.globalAlpha=1;frame++;
+      if(frame<180&&frame%22===0)burst();
+      if(frame<220||particles.length>0){animId=requestAnimationFrame(loop);}
+      else{ctx.clearRect(0,0,W,H);}
+    }
+    burst();loop();
+  }
+
+  function _celebrate(){
+    // Fireworks celebration overlay
+    let overlay=document.getElementById('celebrate-overlay');
+    if(overlay)overlay.remove();
+    overlay=document.createElement('div');
+    overlay.id='celebrate-overlay';
+    overlay.style.cssText='position:fixed;inset:0;z-index:99999;pointer-events:none;overflow:hidden';
+    const canvas=document.createElement('canvas');
+    canvas.width=window.innerWidth;canvas.height=window.innerHeight;
+    canvas.style.cssText='width:100%;height:100%;display:block';
+    overlay.appendChild(canvas);
+    // Congrats banner
+    const banner=document.createElement('div');
+    banner.style.cssText='position:absolute;top:38%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;animation:celebPop .8s ease';
+    banner.innerHTML='<div style="font-size:56px;margin-bottom:8px">🏆</div><div style="font-family:var(--ff-disp);font-size:28px;font-weight:900;color:#D4AF37;text-shadow:0 2px 20px rgba(212,175,55,.6);letter-spacing:1px">¡ÁLBUM COMPLETO!</div><div style="font-size:15px;color:#fff;margin-top:6px;text-shadow:0 2px 10px rgba(0,0,0,.8)">Completaste las 48 selecciones 🎉</div>';
+    overlay.appendChild(banner);
+    document.body.appendChild(overlay);
+
+    const ctx=canvas.getContext('2d');
+    const W=canvas.width,H=canvas.height;
+    const particles=[];
+    const colors=['#D4AF37','#FFD700','#FF5757','#00E0C6','#7B5FFF','#3FE08F','#FF9F40','#FFFFFF'];
+
+    function launchFirework(){
+      const x=Math.random()*W*0.8+W*0.1;
+      const y=Math.random()*H*0.4+H*0.1;
+      const color=colors[Math.floor(Math.random()*colors.length)];
+      const count=40+Math.floor(Math.random()*30);
+      for(let i=0;i<count;i++){
+        const angle=(Math.PI*2*i)/count;
+        const speed=2+Math.random()*4;
+        particles.push({
+          x,y,
+          vx:Math.cos(angle)*speed,
+          vy:Math.sin(angle)*speed,
+          color,
+          life:1,
+          size:2+Math.random()*2
+        });
+      }
+    }
+
+    let frame=0;
+    let animId;
+    function animate(){
+      ctx.fillStyle='rgba(4,7,15,0.15)';
+      ctx.fillRect(0,0,W,H);
+      for(let i=particles.length-1;i>=0;i--){
+        const p=particles[i];
+        p.x+=p.vx;p.y+=p.vy;
+        p.vy+=0.06; // gravity
+        p.vx*=0.99;
+        p.life-=0.012;
+        if(p.life<=0){particles.splice(i,1);continue;}
+        ctx.globalAlpha=Math.max(0,p.life);
+        ctx.fillStyle=p.color;
+        ctx.beginPath();
+        ctx.arc(p.x,p.y,p.size,0,Math.PI*2);
+        ctx.fill();
+      }
+      ctx.globalAlpha=1;
+      frame++;
+      // Launch new fireworks periodically for ~4 seconds
+      if(frame<240&&frame%18===0)launchFirework();
+      if(frame<300||particles.length>0){
+        animId=requestAnimationFrame(animate);
+      }else{
+        overlay.style.transition='opacity .6s';
+        overlay.style.opacity='0';
+        setTimeout(()=>overlay.remove(),600);
+      }
+    }
+    // Initial burst
+    launchFirework();launchFirework();
+    animate();
+    // Haptic feedback if available
+    if(navigator.vibrate)navigator.vibrate([100,50,100,50,200]);
   }
 
   function _drawHubRing(cv,pct){
@@ -4107,22 +4239,7 @@ const Repeated=(()=>{
         }
       }
 
-      // Draw logo in center
-      const logo=new Image();
-      logo.onload=()=>{
-        const logoSize=Math.floor(canvasSize*0.22);
-        const pad=Math.floor(logoSize*0.18);
-        const cx=Math.floor((canvasSize-logoSize)/2);
-        const cy=Math.floor((canvasSize-logoSize)/2);
-        // White rounded background behind logo
-        ctx.fillStyle='#ffffff';
-        const r2=Math.floor(logoSize*0.2);
-        ctx.beginPath();
-        ctx.roundRect(cx-pad,cy-pad,logoSize+pad*2,logoSize+pad*2,r2);
-        ctx.fill();
-        ctx.drawImage(logo,cx,cy,logoSize,logoSize);
-      };
-      logo.src='data:image/png;base64,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';
+      // Logo removed permanently
 
       wrap.appendChild(cv);
     }catch(e){
