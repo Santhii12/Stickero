@@ -307,7 +307,11 @@ input{font-family:inherit;color:inherit}
 .rep-actions{display:flex;gap:10px;justify-content:center}
 .btn-sm{padding:10px 20px;border-radius:var(--r-sm);background:var(--surf);border:1px solid var(--border2);font-size:13px;font-weight:700}
 .btn-sm.outline{opacity:.75}
-.rep-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(95px,1fr));gap:10px}
+.rep-grid{display:block}
+.rep-country-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(95px,1fr));gap:10px;margin-bottom:18px}
+.rep-group-header{font-family:var(--ff-disp);font-size:15px;font-weight:900;color:var(--accent1);margin:18px 0 10px;padding-bottom:6px;border-bottom:2px solid var(--border2);letter-spacing:.5px}
+.rep-group-header:first-child{margin-top:4px}
+.rep-country-header{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--t1);margin:6px 0 8px;padding-left:2px}
 .rep-load-more{grid-column:1/-1;padding:14px;border-radius:var(--r);background:var(--surf);border:1px dashed var(--border2);color:var(--accent1);font-weight:700;font-size:13px;margin-top:6px}
 .rep-load-more:active{background:var(--surf2)}
 
@@ -4182,7 +4186,7 @@ window.Search=Search;
 const Repeated=(()=>{
   let _mode='have'; // 'have' = repetidas para ofrecer, 'want' = faltantes que busco
   let _selected=new Set();
-  let _renderLimit=60; // avoid rendering 1000+ cards at once, which freezes the UI
+  let _renderLimit=120; // avoid rendering 1000+ cards at once, which freezes the UI
   let _searchQuery='';
 
   function init(){
@@ -4262,7 +4266,20 @@ const Repeated=(()=>{
     const list=fullList.slice(0,_renderLimit);
     const hasMore=fullList.length>_renderLimit;
 
-    grid.innerHTML=list.map(s=>{
+    // Group stickers by World Cup group (A-L) then by country
+    const byGroup=new Map();
+    const specialsBucket=[];
+    for(const s of list){
+      if(!s.grupo||['especiales','extras','cocacola'].includes(s.categoria)){
+        specialsBucket.push(s);continue;
+      }
+      if(!byGroup.has(s.grupo))byGroup.set(s.grupo,new Map());
+      const byCountry=byGroup.get(s.grupo);
+      if(!byCountry.has(s.pais))byCountry.set(s.pais,[]);
+      byCountry.get(s.pais).push(s);
+    }
+
+    function cardHTML(s){
       const rep=Collection.getRepeated(s.numero);
       const code=s.categoria==='extras'?`${s.tierName.slice(0,3).toUpperCase()}${s.localNum}`:stickerCode(s);
       const repBadge=_mode==='have'?`<div class="scard-rep">x${rep}</div>`:'';
@@ -4271,7 +4288,26 @@ const Repeated=(()=>{
         <div class="scard-img-wrap"><img src="${illustrationFor(s)}" loading="lazy" alt=""/>${repBadge}<div class="rep-select-check">✓</div></div>
         <div class="scard-foot"><div class="scard-code">${code}</div><div class="scard-name">${PlayerNames.getDisplayName(s)}</div></div>
       </div>`;
-    }).join('');
+    }
+
+    let out='';
+    const sortedGroups=[...byGroup.keys()].sort();
+    for(const grupo of sortedGroups){
+      out+=`<div class="rep-group-header">Grupo ${grupo}</div>`;
+      const byCountry=byGroup.get(grupo);
+      const sortedCountries=[...byCountry.keys()].sort();
+      for(const country of sortedCountries){
+        const items=byCountry.get(country);
+        const flag=items[0].flagEmoji||'';
+        out+=`<div class="rep-country-header">${flag} ${country}</div>`;
+        out+=`<div class="rep-country-grid">${items.map(cardHTML).join('')}</div>`;
+      }
+    }
+    if(specialsBucket.length){
+      out+=`<div class="rep-group-header">Especiales / Extras</div>`;
+      out+=`<div class="rep-country-grid">${specialsBucket.map(cardHTML).join('')}</div>`;
+    }
+    grid.innerHTML=out;
 
     if(hasMore){
       grid.innerHTML+=`<button class="rep-load-more" id="rep-load-more">Ver más (${fullList.length-_renderLimit} restantes)</button>`;
