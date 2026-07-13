@@ -817,7 +817,7 @@ window.__BAKED_DATA__={"names":[{"numero":1,"nombre":"ESCUDO"},{"numero":2,"nomb
         <div class="share-qr-hint">La otra persona escanea esto con su cámara para ver tu lista</div>
       </div>
       <div class="share-sheet-actions">
-        <button class="modal-main-btn" id="share-sheet-send">📤 Enviar por WhatsApp</button>
+        <button class="modal-main-btn" id="share-sheet-send">📤 Copiar y abrir WhatsApp</button>
         <button class="modal-edit-btn" id="share-sheet-copy">📋 Copiar texto</button>
       </div>
     </div>
@@ -4448,11 +4448,49 @@ const Repeated=(()=>{
       ? '\n💬 ¿Las cambiamos por las que me faltan?'
       : '\n💬 ¿Tienes alguna de éstas para cambiar?';
 
-    return`${header}\n${body}${footer}\n\n_📅 ${date}_`;
+    const totalLine=`\n\n📊 *Total: ${list.length} ${list.length===1?'sticker':'stickers'}*`;
+
+    return`${header}\n${body}${footer}${totalLine}\n\n_📅 ${date}_`;
   }
 
-  function _share(text){if(navigator.share)navigator.share({text}).catch(()=>_copy(text));else _copy(text);}
-  function _copy(text){if(navigator.clipboard)navigator.clipboard.writeText(text).then(()=>Toast.show('📋 Copiado al portapapeles'));else window.open(`https://wa.me/?text=${encodeURIComponent(text)}`,'_blank');}
+  async function _share(text){
+    // Copy the full list to clipboard first (so it's ready to paste, complete),
+    // then open WhatsApp. WhatsApp truncates long text passed via URL, so the
+    // reliable flow is: copy everything, open chat, user pastes.
+    const copied=await _copyToClipboard(text);
+    const LONG=1200;
+    if(text.length>LONG){
+      // Long list: open WhatsApp empty, user pastes the copied list
+      Toast.show('📋 Lista copiada · Pégala en el chat (mantén presionado → Pegar)');
+      setTimeout(()=>{window.open('https://wa.me/','_blank');},800);
+    }else{
+      // Short list: pass text directly in the WhatsApp link
+      if(copied)Toast.show('📋 Lista copiada · Abriendo WhatsApp...');
+      setTimeout(()=>{window.open(`https://wa.me/?text=${encodeURIComponent(text)}`,'_blank');},600);
+    }
+  }
+  async function _copyToClipboard(text){
+    try{
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        await navigator.clipboard.writeText(text);return true;
+      }
+    }catch(e){}
+    // Fallback: textarea + execCommand
+    try{
+      const ta=document.createElement('textarea');
+      ta.value=text;ta.style.position='fixed';ta.style.opacity='0';
+      document.body.appendChild(ta);ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      return true;
+    }catch(e){return false;}
+  }
+  async function _copyFallback(text){
+    const ok=await _copyToClipboard(text);
+    if(ok)Toast.show('📋 Copiado al portapapeles');
+    else window.open(`https://wa.me/?text=${encodeURIComponent(text)}`,'_blank');
+  }
+  function _copy(text){_copyFallback(text);}
 
   function refresh(){_selected.clear();render();}
   return{init,render,refresh};
