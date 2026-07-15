@@ -205,7 +205,7 @@ input{font-family:inherit;color:inherit}
 .share-tab{flex:1;padding:9px;border-radius:var(--r-sm);font-size:12px;font-weight:700;border:1px solid var(--border2);color:var(--t2);background:var(--surf)}
 .share-tab.active{background:linear-gradient(135deg,var(--accent2),var(--accent1));color:#fff;border-color:transparent}
 .share-sheet-preview{background:var(--bg4);border:1px solid var(--border2);border-radius:var(--r-sm);padding:14px;font-size:12px;line-height:1.7;color:var(--t2);white-space:pre-wrap;text-align:left;max-height:220px;overflow-y:auto;font-family:monospace;margin-bottom:14px}
-.share-qr-box{background:#fff;border-radius:var(--r);padding:16px;display:flex;align-items:center;justify-content:center;min-height:220px;margin-bottom:10px}
+.share-qr-box{background:#fff;border-radius:20px;padding:16px;display:flex;flex-direction:column;align-items:center;justify-content:center;width:304px;margin:0 auto 12px;overflow:hidden;box-shadow:0 10px 40px rgba(123,95,255,.25),0 0 0 1px rgba(255,255,255,.08)}
 .share-qr-box svg{width:100%;height:auto;max-width:220px}
 .share-qr-hint{font-size:11px;color:var(--t3);text-align:center;margin-bottom:14px}
 .share-sheet-actions{display:flex;flex-direction:column;gap:10px}
@@ -4349,37 +4349,95 @@ const Repeated=(()=>{
     const wrap=qs('#share-sheet-qr-canvas');if(!wrap)return;
     wrap.innerHTML='';
     try{
-      const qrText=text.length>500?text.slice(0,500)+'\n...(lista truncada)':text;
-      // Use H (high) error correction so the center logo doesn't break QR readability
-      const qr=qrcode(0,'H');
+      const codeLines=text.split('\n').filter(l=>l.includes('`'));
+      const codes=codeLines.map(l=>{const m=l.match(/`([^`]+)`/);return m?m[1]:null;}).filter(Boolean);
+      const MAXCODES=40;
+      const limited=codes.slice(0,MAXCODES);
+      const qrText=limited.length?limited.join(' '):text.slice(0,120);
+
+      const qr=qrcode(0,'M');
       qr.addData(qrText);
       qr.make();
-
       const modules=qr.getModuleCount();
-      const size=Math.min(220,wrap.parentElement?.clientWidth-32||220);
-      const cell=Math.max(3,Math.floor(size/modules));
-      const canvasSize=cell*modules;
+
+      const DISPLAY=272;
+      const SCALE=4;
+      const RES=DISPLAY*SCALE;
+      const quiet=2;
+      const cell=RES/(modules+quiet*2);
+      const off=quiet*cell;
 
       const cv=document.createElement('canvas');
-      cv.width=canvasSize;cv.height=canvasSize;
-      cv.style.width=canvasSize+'px';cv.style.height=canvasSize+'px';
-      cv.style.display='block';cv.style.margin='0 auto';
-      cv.style.borderRadius='12px';
+      cv.width=RES;cv.height=RES;
+      cv.style.cssText='width:'+DISPLAY+'px;height:'+DISPLAY+'px;display:block;margin:0 auto;border-radius:14px';
       const ctx=cv.getContext('2d');
 
-      // Draw QR modules
-      for(let r=0;r<modules;r++){
-        for(let c=0;c<modules;c++){
-          ctx.fillStyle=qr.isDark(r,c)?'#0a0f2c':'#ffffff';
-          ctx.fillRect(c*cell,r*cell,cell,cell);
+      ctx.fillStyle='#ffffff';
+      ctx.fillRect(0,0,RES,RES);
+
+      // Brand gradient across the QR body
+      const grad=ctx.createLinearGradient(off,off,RES-off,RES-off);
+      grad.addColorStop(0,'#7B5FFF');
+      grad.addColorStop(0.5,'#3B7BE0');
+      grad.addColorStop(1,'#00B8A4');
+
+      function isFinderZone(row,col){
+        return (row<7&&col<7)||(row<7&&col>=modules-7)||(row>=modules-7&&col<7);
+      }
+
+      // Draw data modules as rounded dots — better contrast at high density
+      ctx.fillStyle=grad;
+      const dot=cell*0.92;
+      const pad=(cell-dot)/2;
+      const r=dot*0.32;
+      for(let row=0;row<modules;row++){
+        for(let col=0;col<modules;col++){
+          if(!qr.isDark(row,col))continue;
+          if(isFinderZone(row,col))continue;
+          const x=off+col*cell+pad,y=off+row*cell+pad;
+          ctx.beginPath();
+          if(ctx.roundRect)ctx.roundRect(x,y,dot,dot,r);
+          else ctx.rect(x,y,dot,dot);
+          ctx.fill();
         }
       }
 
-      // Logo removed permanently
+      // Custom finder patterns (the 3 corner squares)
+      function finder(cx,cy){
+        const s=7*cell;
+        const x=off+cx*cell,y=off+cy*cell;
+        ctx.fillStyle='#ffffff';
+        ctx.beginPath();
+        if(ctx.roundRect)ctx.roundRect(x,y,s,s,cell*1.4);else ctx.rect(x,y,s,s);
+        ctx.fill();
+        // outer rounded ring
+        ctx.strokeStyle=grad;
+        ctx.lineWidth=cell;
+        ctx.beginPath();
+        if(ctx.roundRect)ctx.roundRect(x+cell/2,y+cell/2,s-cell,s-cell,cell*1.2);
+        else ctx.rect(x+cell/2,y+cell/2,s-cell,s-cell);
+        ctx.stroke();
+        // inner dot
+        ctx.fillStyle=grad;
+        ctx.beginPath();
+        if(ctx.roundRect)ctx.roundRect(x+cell*2,y+cell*2,cell*3,cell*3,cell*1);
+        else ctx.rect(x+cell*2,y+cell*2,cell*3,cell*3);
+        ctx.fill();
+      }
+      finder(0,0);
+      finder(modules-7,0);
+      finder(0,modules-7);
 
       wrap.appendChild(cv);
+
+      if(codes.length>MAXCODES){
+        const note=document.createElement('p');
+        note.style.cssText='text-align:center;font-size:11px;color:#8a8fa8;margin:8px 0 0';
+        note.textContent=`Mostrando ${MAXCODES} de ${codes.length} códigos`;
+        wrap.appendChild(note);
+      }
     }catch(e){
-      wrap.innerHTML='<div style="padding:30px;text-align:center;color:var(--t3);font-size:13px">La lista es muy larga para QR.<br/>Usa "Copiar texto" en su lugar.</div>';
+      wrap.innerHTML='<div style="padding:30px;text-align:center;color:#8a8fa8;font-size:13px">No se pudo generar el QR.<br/>Usa "Copiar texto" en su lugar.</div>';
     }
   }
 
