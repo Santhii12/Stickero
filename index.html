@@ -4633,7 +4633,6 @@ const Scanner=(()=>{
     const ok=await _ensureTesseract();
     if(!ok){btn.disabled=false;label.textContent='📸 Capturar y leer';return;}
 
-    // Capture the native frame first (no upscale yet)
     const vw=video.videoWidth,vh=video.videoHeight;
     const fullCanvas=document.createElement('canvas');
     fullCanvas.width=vw;fullCanvas.height=vh;
@@ -4643,59 +4642,236 @@ const Scanner=(()=>{
       _worker=await Tesseract.createWorker('eng');
       await _worker.setParameters({
         tessedit_char_whitelist:'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ',
-        tessedit_pageseg_mode:'7' // single text line — matches the code badge shape (one short line)
+        tessedit_pageseg_mode:'7'
       });
     }
 
     label.textContent='🔍 Leyendo…';
 
-    // Calibrated from 5 real sticker photos: the code badge is always in the top-right
-    // corner, roughly the top ~22% of the sticker height and right ~50% of its width.
-    // Margins below give tolerance for imperfect framing by hand.
+    // Calibrated from real sticker photos: the code badge sits in the top-right.
     const zones=[
-      {x:vw*0.42, y:0,        w:vw*0.58, h:vh*0.26},  // calibrated primary zone
-      {x:vw*0.30, y:0,        w:vw*0.70, h:vh*0.32},  // wider fallback in case framing is off
-      {x:0,       y:0,        w:vw,      h:vh*0.30},  // full top band, last resort
+      {x:vw*0.42, y:0, w:vw*0.58, h:vh*0.26},
+      {x:vw*0.30, y:0, w:vw*0.70, h:vh*0.32},
+      {x:0,       y:0, w:vw,      h:vh*0.30},
     ];
+    // Each zone is tried with several image treatments; dark badges need 'invert'.
+    const modes=['otsu','invert','raw'];
 
-    let rawText='',parsed=null;
+    // Collect every successful read, then pick the most agreed-upon result.
+    const votes=new Map();
+    let rawText='',firstRaw='';
+    let attempts=0;
+    const MAXATTEMPTS=6; // keep it responsive on mid-range phones
+
+    outer:
     for(const z of zones){
-      const cropped=_cropAndUpscale(fullCanvas,z.x,z.y,z.w,z.h,2.2);
-      try{
-        const{data}=await _worker.recognize(cropped);
-        rawText=(data.text||'').trim();
-        parsed=_extractCode(rawText);
-        if(parsed)break;
-      }catch(err){/* try next zone */}
+      for(const mode of modes){
+        if(attempts>=MAXATTEMPTS)break outer;
+        attempts++;
+        const scale=mode==='raw'?2.2:2.6;
+        const cropped=_cropAndUpscale(fullCanvas,z.x,z.y,z.w,z.h,scale,mode);
+        try{
+          const{data}=await _worker.recognize(cropped);
+          const txt=(data.text||'').trim();
+          if(!firstRaw&&txt)firstRaw=txt;
+          const parsed=_extractCode(txt);
+          if(parsed){
+            const key=parsed.abbr+'-'+parsed.num;
+            const prev=votes.get(key)||{count:0,parsed,raw:txt,conf:0};
+            prev.count++;
+            prev.conf=Math.max(prev.conf,data.confidence||0);
+            votes.set(key,prev);
+            rawText=txt;
+            // Two independent agreeing reads is a strong signal — stop early.
+            if(prev.count>=2)break outer;
+          }
+        }catch(err){/* try next variant */}
+      }
     }
 
     btn.disabled=false;label.textContent='📸 Capturar y leer';
 
-    if(parsed){
-      _showScanResult(parsed.abbr,parsed.num,rawText);
+    if(votes.size){
+      // Winner = most votes, tie-broken by OCR confidence
+      let best=null;
+      for(const v of votes.values()){
+        if(!best||v.count>best.count||(v.count===best.count&&v.conf>best.conf))best=v;
+      }
+      _showScanResult(best.parsed.abbr,best.parsed.num,best.raw||rawText);
     }else{
-      _showManualCorrection(rawText);
+      _showManualCorrection(firstRaw);
     }
   }
 
-  function _cropAndUpscale(sourceCanvas,x,y,w,h,scale){
+  function _cropAndUpscale(sourceCanvas,x,y,w,h,scale,mode){
     const canvas=qs('#scan-canvas');
     canvas.width=w*scale;canvas.height=h*scale;
-    const ctx=canvas.getContext('2d');
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
     ctx.imageSmoothingEnabled=true;
     ctx.imageSmoothingQuality='high';
     ctx.drawImage(sourceCanvas,x,y,w,h,0,0,w*scale,h*scale);
+    if(mode&&mode!=='raw')_preprocess(canvas,mode);
     return canvas;
+  }
+
+  // Image preprocessing — Tesseract is far more accurate on high-contrast B/W input
+  function _preprocess(canvas,mode){
+    const ctx=canvas.getContext('2d',{willReadFrequently:true});
+    const W=canvas.width,H=canvas.height;
+    const img=ctx.getImageData(0,0,W,H);
+    const d=img.data;
+    const n=W*H;
+
+    // 1. Grayscale (luminance) + build histogram
+    const gray=new Uint8ClampedArray(n);
+    const hist=new Uint32Array(256);
+    for(let i=0,p=0;i<n;i++,p+=4){
+      const g=(d[p]*0.299+d[p+1]*0.587+d[p+2]*0.114)|0;
+      gray[i]=g;hist[g]++;
+    }
+
+    // 2. Otsu's method — finds the optimal black/white threshold automatically
+    let sum=0;for(let t=0;t<256;t++)sum+=t*hist[t];
+    let sumB=0,wB=0,maxVar=-1,thr=128;
+    for(let t=0;t<256;t++){
+      wB+=hist[t];if(wB===0)continue;
+      const wF=n-wB;if(wF===0)break;
+      sumB+=t*hist[t];
+      const mB=sumB/wB,mF=(sum-sumB)/wF;
+      const between=wB*wF*(mB-mF)*(mB-mF);
+      if(between>maxVar){maxVar=between;thr=t;}
+    }
+
+    // 3. Apply threshold. 'invert' handles light text on dark badges.
+    const inv=mode==='invert';
+    for(let i=0,p=0;i<n;i++,p+=4){
+      let v=gray[i]>thr?255:0;
+      if(inv)v=255-v;
+      d[p]=d[p+1]=d[p+2]=v;d[p+3]=255;
+    }
+    ctx.putImageData(img,0,0);
+  }
+
+  // Characters Tesseract most often confuses, mapped to their likely intent
+  const _OCR_FIX={'0':'O','1':'I','5':'S','8':'B','6':'G','2':'Z','4':'A'};
+  const _OCR_FIX_NUM={'O':'0','Q':'0','D':'0','I':'1','L':'1','S':'5','B':'8','G':'6','Z':'2','A':'4','T':'7'};
+
+  // All valid abbreviations from the real album (48 teams + specials)
+  function _validAbbrs(){
+    if(!window.__ABBRS__){
+      window.__ABBRS__=[...new Set(StickerData.stickers.map(s=>s.abbr).filter(Boolean))];
+    }
+    return window.__ABBRS__;
+  }
+
+  // Levenshtein distance — how many edits to turn a into b
+  function _dist(a,b){
+    if(a===b)return 0;
+    const m=a.length,n=b.length;
+    if(!m)return n;if(!n)return m;
+    let prev=new Array(n+1),cur=new Array(n+1);
+    for(let j=0;j<=n;j++)prev[j]=j;
+    for(let i=1;i<=m;i++){
+      cur[0]=i;
+      for(let j=1;j<=n;j++){
+        const cost=a[i-1]===b[j-1]?0:1;
+        cur[j]=Math.min(cur[j-1]+1,prev[j]+1,prev[j-1]+cost);
+      }
+      [prev,cur]=[cur,prev];
+    }
+    return prev[n];
+  }
+
+  // Snap a noisy OCR abbreviation to the closest real one
+  function _snapAbbr(raw){
+    if(!raw)return null;
+    let s=raw.toUpperCase().replace(/[^A-Z0-9]/g,'');
+    const valid=_validAbbrs();
+    if(valid.includes(s))return s;
+    // Try swapping digits that are probably letters (0->O, 1->I, 5->S...)
+    const lettered=s.split('').map(c=>_OCR_FIX[c]||c).join('');
+    if(valid.includes(lettered))return lettered;
+    // Fuzzy: pick the closest valid abbr, but only if it's clearly close.
+    // Ties are broken by how many chars are known OCR look-alikes (I/L, O/D...),
+    // so "C0I" resolves to COL (I~L) rather than COD (I vs D is not a look-alike).
+    const LOOKALIKE={'I':'L','L':'I','O':'D','D':'O','O':'Q','Q':'O','U':'V','V':'U','M':'N','N':'M','E':'F','F':'E','C':'G','G':'C','P':'R','R':'P'};
+    function tieScore(a,b){
+      if(a.length!==b.length)return 0;
+      let sc=0;
+      for(let i=0;i<a.length;i++){
+        if(a[i]===b[i])sc+=2;
+        else if(LOOKALIKE[a[i]]===b[i])sc+=1;
+      }
+      return sc;
+    }
+    let best=null,bestD=99,bestScore=-1;
+    for(const v of valid){
+      if(Math.abs(v.length-s.length)>1)continue;
+      const d=Math.min(_dist(s,v),_dist(lettered,v));
+      if(d>bestD)continue;
+      const score=Math.max(tieScore(s,v),tieScore(lettered,v));
+      if(d<bestD||score>bestScore){bestD=d;bestScore=score;best=v;}
+    }
+    return bestD<=1?best:null;
+  }
+
+  // Clean a noisy number: fix letter/digit confusion, validate range
+  function _snapNum(raw,abbr){
+    if(raw===null||raw===undefined)return null;
+    let s=String(raw).toUpperCase().replace(/[^A-Z0-9]/g,'');
+    s=s.split('').map(c=>_OCR_FIX_NUM[c]||c).join('');
+    s=s.replace(/[^0-9]/g,'');
+    if(!s)return null;
+    let n=parseInt(s,10);
+    if(isNaN(n))return null;
+    // Validate the number actually exists for this team
+    if(abbr){
+      const exists=StickerData.stickers.some(x=>x.abbr===abbr&&x.localNum===n);
+      if(exists)return n;
+      // OCR sometimes glues an extra digit (e.g. "117" for "17") — try trimming
+      if(s.length>2){
+        const trimmed=parseInt(s.slice(-2),10);
+        if(StickerData.stickers.some(x=>x.abbr===abbr&&x.localNum===trimmed))return trimmed;
+      }
+      const first=parseInt(s[0],10);
+      if(StickerData.stickers.some(x=>x.abbr===abbr&&x.localNum===first))return first;
+      return null;
+    }
+    return n;
   }
 
   function _extractCode(rawText){
     const cleaned=rawText.replace(/[\n\r]+/g,' ').replace(/\s+/g,' ').trim();
     if(!cleaned)return null;
+
+    // 1. Exact parse first (fast path)
     const parsed=StickerData.parseCodeQuery(cleaned);
     if(parsed)return parsed;
-    // Loose fallback: scan the noisy OCR text for ANY letters+digits pattern (e.g. "KSA 10")
-    const match=cleaned.toUpperCase().match(/([A-Z]{2,4})\s*(\d{1,2})\b/);
-    if(match)return{abbr:match[1],num:parseInt(match[2])};
+
+    const up=cleaned.toUpperCase();
+
+    // 2. Try every letters+digits pattern in the noisy text, snapping to real values
+    const candidates=[...up.matchAll(/([A-Z0-9]{2,4})\s*[-\s]?\s*([0-9OQDILSBGZAT]{1,3})/g)];
+    for(const m of candidates){
+      const abbr=_snapAbbr(m[1]);
+      if(!abbr)continue;
+      const num=_snapNum(m[2],abbr);
+      if(num!==null)return{abbr,num};
+    }
+
+    // 3. Last resort: find any valid abbr anywhere, then any nearby number
+    const tokens=up.split(/[^A-Z0-9]+/).filter(Boolean);
+    let foundAbbr=null;
+    for(const t of tokens){
+      const a=_snapAbbr(t);
+      if(a){foundAbbr=a;break;}
+    }
+    if(foundAbbr){
+      for(const t of tokens){
+        const n=_snapNum(t,foundAbbr);
+        if(n!==null)return{abbr:foundAbbr,num:n};
+      }
+    }
     return null;
   }
 
